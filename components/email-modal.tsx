@@ -1,62 +1,86 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Send, X, TestTube } from "lucide-react"
-import type { Startup } from "@/lib/supabase"
-import EmailTestModal from "@/components/email-test-modal"
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Send, X, TestTube } from "lucide-react";
+import EmailTestModal from "@/components/email-test-modal";
 
-interface EmailModalProps {
-  open: boolean
-  onClose: () => void
-  selectedStartups: Startup[]
+interface Startup {
+  notification_email: string;
+  id: string;
+  name: string;
+  founder_name: string | null;
+  email: string;
+  logo_url: string | null;
+  contract_status: "Pending" | "Sent" | "Signed";
+  total_credits: number;
+  used_credits: number;
+  marketplace_access: boolean;
+  user_id: string | null; // allow null
+  created_by: string | null; // allow null
+  status: "active" | "inactive";
+  created_at: string;
+  updated_at: string;
 }
 
-export default function EmailModal({ open, onClose, selectedStartups }: EmailModalProps) {
-  const [subject, setSubject] = useState("")
-  const [message, setMessage] = useState("")
-  const [sending, setSending] = useState(false)
-  const [testModalOpen, setTestModalOpen] = useState(false)
+interface EmailModalProps {
+  open: boolean;
+  onClose: () => void;
+  selectedStartups: Startup[];
+}
+
+export default function EmailModal({
+  open,
+  onClose,
+  selectedStartups,
+}: EmailModalProps) {
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [testModalOpen, setTestModalOpen] = useState(false);
 
   const handleSend = async () => {
-    setSending(true)
+    setSending(true);
     try {
       const response = await fetch("/api/send-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           recipients: selectedStartups.map((startup) => ({
-            email: startup.email,
-            notification_email: startup.notification_email || startup.email,
+            email: startup.notification_email || startup.email,
             name: startup.name,
           })),
           subject,
           message,
           senderName: "Orange Corners Program Manager",
         }),
-      })
+      });
 
-      const result = await response.json()
+      const result = await response.json();
 
       if (response.ok) {
-        setSending(false)
-        setSubject("")
-        setMessage("")
-        onClose()
-        alert(`✅ ${result.message}`)
+        setSending(false);
+        setSubject("");
+        setMessage("");
+        onClose();
+        alert(`✅ ${result.message}`);
       } else {
-        throw new Error(result.error || "Failed to send email")
+        throw new Error(result.error || "Failed to send email");
       }
     } catch (error) {
-      console.error("Email error:", error)
-      alert(`❌ Failed to send email: ${error.message}`)
-      setSending(false)
+      console.error("Email error:", error);
+      setSending(false);
     }
-  }
+  };
 
   return (
     <>
@@ -84,10 +108,15 @@ export default function EmailModal({ open, onClose, selectedStartups }: EmailMod
 
           <div className="space-y-4">
             <div className="p-3 bg-[#F9F7F1] rounded-lg">
-              <p className="text-sm text-[#212121] font-medium mb-2">Recipients:</p>
+              <p className="text-sm text-[#212121] font-medium mb-2">
+                Recipients:
+              </p>
               <div className="flex flex-wrap gap-2">
                 {selectedStartups.map((startup) => (
-                  <span key={startup.id} className="px-2 py-1 bg-white rounded text-xs text-[#212121]">
+                  <span
+                    key={startup.id}
+                    className="px-2 py-1 bg-white rounded text-xs text-[#212121]"
+                  >
                     {startup.name}
                   </span>
                 ))}
@@ -122,7 +151,11 @@ export default function EmailModal({ open, onClose, selectedStartups }: EmailMod
             </div>
 
             <div className="flex justify-end space-x-3 pt-4">
-              <Button variant="outline" onClick={onClose} className="bg-white text-[#212121] border-gray-300">
+              <Button
+                variant="outline"
+                onClick={onClose}
+                className="bg-white text-[#212121] border-gray-300"
+              >
                 Cancel
               </Button>
               <Button
@@ -138,7 +171,12 @@ export default function EmailModal({ open, onClose, selectedStartups }: EmailMod
         </DialogContent>
       </Dialog>
 
-      {testModalOpen && <EmailTestModal open={testModalOpen} onClose={() => setTestModalOpen(false)} />}
+      {testModalOpen && (
+        <EmailTestModal
+          open={testModalOpen}
+          onClose={() => setTestModalOpen(false)}
+        />
+      )}
     </>
-  )
+  );
 }

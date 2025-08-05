@@ -1,28 +1,36 @@
-import { NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+// app/api/update-startup-status/route.ts
+import { NextResponse } from "next/server";
+import { pool } from "@/lib/db";
 
-// Server-side Supabase client (service-role key has full DB access)
-const supabaseAdmin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-  auth: { autoRefreshToken: false, persistSession: false },
-})
-
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
-    const { id, status } = await req.json()
+    const { id, status } = await request.json();
 
     if (!id || !status) {
-      return NextResponse.json({ ok: false, error: "Missing id or status" }, { status: 400 })
+      return NextResponse.json(
+        { ok: false, error: "Missing id or status" },
+        { status: 400 }
+      );
     }
 
-    const { error } = await supabaseAdmin.from("startups").update({ status }).eq("id", id)
+    const result = await pool.query(
+      `UPDATE startups SET status = $1 WHERE id = $2`,
+      [status, id]
+    );
 
-    if (error) {
-      console.error("Admin status update error:", error)
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 })
+    if (result.rowCount === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Startup not found" },
+        { status: 404 }
+      );
     }
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true });
   } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message ?? "Server error" }, { status: 500 })
+    console.error("Update startup status error:", err);
+    return NextResponse.json(
+      { ok: false, error: err.message ?? "Server error" },
+      { status: 500 }
+    );
   }
 }

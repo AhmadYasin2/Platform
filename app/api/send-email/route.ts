@@ -73,7 +73,7 @@ export async function POST(request: Request) {
                 </div>
               </div>
               <p style="color: #999; margin: 0; font-size: 14px;">
-                © 2025 Orange Corners. All Rights Reserved.
+                © 2025 Orange Corners. All Rights Reserved. 
               </p>
               <p style="color: #666; margin: 10px 0 0 0; font-size: 12px;">
                 You received this email because you're part of the Orange Corners entrepreneurship program.

@@ -1,146 +1,113 @@
-"use client"
+"use client";
 
-import type React from "react"
-
-import { useState, useEffect, useRef } from "react"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Send, Bot, User, Loader2, MessageSquare, Sparkles } from "lucide-react"
-import { supabase } from "@/lib/supabase"
-import { useAuth } from "@/components/auth-provider"
+import type React from "react";
+import { useState, useEffect, useRef } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Send,
+  Bot,
+  User,
+  Loader2,
+  MessageSquare,
+  Sparkles,
+} from "lucide-react";
+import { useSession, signIn } from "next-auth/react";
 
 interface Message {
-  id: string
-  role: "user" | "assistant"
-  content: string
-  created_at: string
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
 }
 
 interface ChatSession {
-  id: string
-  session_title: string
-  created_at: string
+  id: string;
+  session_title: string;
+  created_at: string;
 }
 
 export default function AIChat() {
-  const [sessions, setSessions] = useState<ChatSession[]>([])
-  const [currentSession, setCurrentSession] = useState<ChatSession | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [inputMessage, setInputMessage] = useState("")
-  const [loading, setLoading] = useState(false)
-  const [startup, setStartup] = useState<any>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const { user } = useAuth()
+  const { data: session, status: authStatus } = useSession();
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [currentSession, setCurrentSession] = useState<ChatSession | null>(
+    null
+  );
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [inputMessage, setInputMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [startup, setStartup] = useState<any>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (user) {
-      fetchStartupData()
-      fetchChatSessions()
-    }
-  }, [user])
-
-  useEffect(() => {
-    if (currentSession) {
-      fetchMessages()
-    }
-  }, [currentSession])
-
-  useEffect(() => {
-    scrollToBottom()
-  }, [messages])
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }
-
+  // 1) Fetch the startup for the logged-in user
   const fetchStartupData = async () => {
     try {
-      const { data, error } = await supabase.from("startups").select("*").eq("user_id", user?.id).single()
-
-      if (error) throw error
-      setStartup(data)
-    } catch (error) {
-      console.error("Error fetching startup data:", error)
+      const res = await fetch("/api/startup");
+      if (!res.ok) throw new Error(await res.text());
+      setStartup(await res.json());
+    } catch (err) {
+      console.error("Error fetching startup data:", err);
     }
-  }
+  };
 
+  // 2) Fetch chat sessions for that startup
   const fetchChatSessions = async () => {
-    if (!startup) return
-
+    if (!startup) return;
     try {
-      const { data, error } = await supabase
-        .from("ai_chat_sessions")
-        .select("*")
-        .eq("startup_id", startup.id)
-        .order("updated_at", { ascending: false })
-
-      if (error) throw error
-      setSessions(data || [])
-
-      // Auto-select first session or create new one
-      if (data && data.length > 0) {
-        setCurrentSession(data[0])
-      } else {
-        createNewSession()
-      }
-    } catch (error) {
-      console.error("Error fetching chat sessions:", error)
+      const res = await fetch(`/api/ai-chat-sessions?startupId=${startup.id}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data: ChatSession[] = await res.json();
+      setSessions(data);
+      setCurrentSession(data[0] ?? null);
+    } catch (err) {
+      console.error("Error fetching chat sessions:", err);
     }
-  }
+  };
 
+  // 3) Fetch messages for the current session
   const fetchMessages = async () => {
-    if (!currentSession) return
-
+    if (!currentSession) return;
     try {
-      const { data, error } = await supabase
-        .from("ai_chat_messages")
-        .select("*")
-        .eq("session_id", currentSession.id)
-        .order("created_at", { ascending: true })
-
-      if (error) throw error
-      setMessages(data || [])
-    } catch (error) {
-      console.error("Error fetching messages:", error)
+      const res = await fetch(
+        `/api/ai-chat-messages?sessionId=${currentSession.id}`
+      );
+      if (!res.ok) throw new Error(await res.text());
+      setMessages(await res.json());
+    } catch (err) {
+      console.error("Error fetching messages:", err);
     }
-  }
+  };
 
+  // 4) Create a brand-new chat session
   const createNewSession = async () => {
-    if (!startup) return
-
+    if (!startup) return;
     try {
-      const { data, error } = await supabase
-        .from("ai_chat_sessions")
-        .insert({
-          startup_id: startup.id,
-          session_title: `Chat ${new Date().toLocaleDateString()}`,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      const newSession = data as ChatSession
-      setSessions([newSession, ...sessions])
-      setCurrentSession(newSession)
-      setMessages([])
-    } catch (error) {
-      console.error("Error creating new session:", error)
+      const res = await fetch("/api/ai-chat-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ startupId: startup.id }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const newSession: ChatSession = await res.json();
+      setSessions([newSession, ...sessions]);
+      setCurrentSession(newSession);
+      setMessages([]);
+    } catch (err) {
+      console.error("Error creating new session:", err);
     }
-  }
+  };
 
+  // 5) Send a message & get AI reply
   const sendMessage = async () => {
-    if (!inputMessage.trim() || !currentSession || !startup || loading) return
-
-    const userMessage = inputMessage.trim()
-    setInputMessage("")
-    setLoading(true)
+    if (!inputMessage.trim() || !currentSession || !startup || loading) return;
+    const userMessage = inputMessage.trim();
+    setInputMessage("");
+    setLoading(true);
 
     try {
-      // Call AI API
-      const response = await fetch("/api/ai-chat", {
+      const res = await fetch("/api/ai-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -148,36 +115,61 @@ export default function AIChat() {
           sessionId: currentSession.id,
           startupId: startup.id,
         }),
-      })
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await fetchMessages();
 
-      if (!response.ok) {
-        throw new Error("Failed to get AI response")
-      }
-
-      const { response: aiResponse, context } = await response.json()
-
-      // Refresh messages to show the conversation
-      await fetchMessages()
-
-      // Update session timestamp
-      await supabase
-        .from("ai_chat_sessions")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", currentSession.id)
-    } catch (error) {
-      console.error("Error sending message:", error)
-      alert("Failed to send message. Please try again.")
+      // bump the session's updated_at timestamp
+      await fetch("/api/ai-chat-sessions", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: currentSession.id }),
+      });
+    } catch (err) {
+      console.error("Error sending message:", err);
+      alert("Failed to send message. Please try again.");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
+
+  useEffect(() => {
+    if (authStatus === "unauthenticated") signIn();
+  }, [authStatus]);
+
+  useEffect(() => {
+    if (authStatus === "authenticated") {
+      fetchStartupData();
+      fetchChatSessions();
+    }
+  }, [authStatus]);
+
+  useEffect(() => {
+    if (startup) {
+      fetchChatSessions();
+    }
+  }, [startup]);
+
+  useEffect(() => {
+    if (currentSession) {
+      fetchMessages();
+    }
+  }, [currentSession]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
+      e.preventDefault();
+      sendMessage();
     }
-  }
+  };
 
   if (!startup) {
     return (
@@ -187,10 +179,10 @@ export default function AIChat() {
           <p className="text-[#212121]">Loading AI assistant...</p>
         </CardContent>
       </Card>
-    )
+    );
   }
 
-  const availableCredits = startup.total_credits - startup.used_credits
+  const availableCredits = startup.total_credits - startup.used_credits;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 h-[600px]">
@@ -202,7 +194,11 @@ export default function AIChat() {
               <MessageSquare className="w-5 h-5 text-[#FF7A00]" />
               <span>Chat History</span>
             </CardTitle>
-            <Button onClick={createNewSession} size="sm" className="bg-[#FF7A00] hover:bg-[#E66A00] text-white">
+            <Button
+              onClick={createNewSession}
+              size="sm"
+              className="bg-[#FF7A00] hover:bg-[#E66A00] text-white"
+            >
               New Chat
             </Button>
           </div>
@@ -219,12 +215,18 @@ export default function AIChat() {
                     : "bg-[#F9F7F1] hover:bg-gray-200 text-[#212121]"
                 }`}
               >
-                <p className="text-sm font-medium truncate">{session.session_title}</p>
-                <p className="text-xs opacity-70">{new Date(session.created_at).toLocaleDateString()}</p>
+                <p className="text-sm font-medium truncate">
+                  {session.session_title}
+                </p>
+                <p className="text-xs opacity-70">
+                  {new Date(session.created_at).toLocaleDateString()}
+                </p>
               </div>
             ))}
             {sessions.length === 0 && (
-              <p className="text-sm text-[#212121] opacity-70 text-center py-4">No chat history yet</p>
+              <p className="text-sm text-[#212121] opacity-70 text-center py-4">
+                No chat history yet
+              </p>
             )}
           </div>
         </CardContent>
@@ -238,7 +240,10 @@ export default function AIChat() {
               <Sparkles className="w-5 h-5 text-[#FF7A00]" />
               <span>AI Startup Advisor</span>
             </CardTitle>
-            <Badge variant="outline" className="text-[#FF7A00] border-[#FF7A00]">
+            <Badge
+              variant="outline"
+              className="text-[#FF7A00] border-[#FF7A00]"
+            >
               {availableCredits} credits available
             </Badge>
           </div>
@@ -249,10 +254,13 @@ export default function AIChat() {
             {messages.length === 0 && (
               <div className="text-center py-8">
                 <Bot className="w-12 h-12 text-[#FF7A00] mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-[#212121] mb-2">Welcome to your AI Startup Advisor!</h3>
+                <h3 className="text-lg font-medium text-[#212121] mb-2">
+                  Welcome to your AI Startup Advisor!
+                </h3>
                 <p className="text-sm text-[#212121] opacity-70 max-w-md mx-auto">
-                  I'm here to help you choose the best services for your startup based on your needs, budget, and goals.
-                  Ask me anything about our available services!
+                  I'm here to help you choose the best services for your startup
+                  based on your needs, budget, and goals. Ask me anything about
+                  our available services!
                 </p>
               </div>
             )}
@@ -260,7 +268,9 @@ export default function AIChat() {
             {messages.map((message) => (
               <div
                 key={message.id}
-                className={`flex items-start space-x-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`flex items-start space-x-3 ${
+                  message.role === "user" ? "justify-end" : "justify-start"
+                }`}
               >
                 {message.role === "assistant" && (
                   <div className="w-8 h-8 bg-[#FF7A00] rounded-full flex items-center justify-center flex-shrink-0">
@@ -269,11 +279,17 @@ export default function AIChat() {
                 )}
                 <div
                   className={`max-w-[80%] p-3 rounded-lg ${
-                    message.role === "user" ? "bg-[#FF7A00] text-white" : "bg-[#F9F7F1] text-[#212121]"
+                    message.role === "user"
+                      ? "bg-[#FF7A00] text-white"
+                      : "bg-[#F9F7F1] text-[#212121]"
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                  <p className="text-xs opacity-70 mt-1">{new Date(message.created_at).toLocaleTimeString()}</p>
+                  <p className="text-sm whitespace-pre-wrap">
+                    {message.content}
+                  </p>
+                  <p className="text-xs opacity-70 mt-1">
+                    {new Date(message.created_at).toLocaleTimeString()}
+                  </p>
                 </div>
                 {message.role === "user" && (
                   <div className="w-8 h-8 bg-[#1BC9C9] rounded-full flex items-center justify-center flex-shrink-0">
@@ -315,11 +331,15 @@ export default function AIChat() {
               disabled={!inputMessage.trim() || loading}
               className="bg-[#FF7A00] hover:bg-[#E66A00] text-white"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {loading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
             </Button>
           </div>
         </CardContent>
       </Card>
     </div>
-  )
+  );
 }

@@ -1,137 +1,59 @@
-"use client"
+"use client";
 
-import type React from "react"
-
-import { useState } from "react"
-import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { supabase } from "@/lib/supabase"
-import { useAuth } from "@/components/auth-provider"
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { signIn, useSession, type SignInResponse } from "next-auth/react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginForm() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState("")
-  const router = useRouter()
-  const { profile } = useAuth()
+  const { data: session, status } = useSession();
+  const router = useRouter();
 
-  // Redirect if already logged in
-  if (profile) {
-    if (profile.role === "manager") {
-      router.push("/dashboard")
-    } else {
-      router.push("/startup-dashboard")
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Redirect once logged in
+  useEffect(() => {
+    if (status === "authenticated") {
+      const role = (session?.user as any)?.role;
+      router.push(role === "manager" ? "/dashboard" : "/startup-dashboard");
     }
-    return null
-  }
+  }, [status, session, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError("")
+    e.preventDefault();
+    setError("");
+    setIsLoading(true);
 
-    const trimmedEmail = email.trim().toLowerCase()
-    const trimmedPassword = password.trim()
+    // call NextAuth credentials provider
+    const res = (await signIn("credentials", {
+      redirect: false,
+      email: email.trim().toLowerCase(),
+      password: password.trim(),
+    })) as SignInResponse | undefined;
 
-    try {
-      console.log("=== LOGIN ATTEMPT ===")
-      console.log("Email:", trimmedEmail)
-      console.log("Password length:", trimmedPassword.length)
+    setIsLoading(false);
 
-      // First, try to sign in
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: trimmedEmail,
-        password: trimmedPassword,
-      })
-
-      if (error) {
-        console.error("Login error:", error)
-
-        // Provide more specific error messages
-        if (error.message.includes("Invalid login credentials")) {
-          throw new Error("Invalid email or password. Please check your credentials and try again.")
-        } else if (error.message.includes("Email not confirmed")) {
-          throw new Error("Please check your email and confirm your account before logging in.")
-        } else if (error.message.includes("Too many requests")) {
-          throw new Error("Too many login attempts. Please wait a few minutes and try again.")
-        } else {
-          throw new Error(`Login failed: ${error.message}`)
-        }
+    if (!res || res.error) {
+      let msg = res?.error ?? "Login failed";
+      if (msg.includes("Invalid credentials")) {
+        msg = "Invalid email or password.";
+      } else if (msg.includes("Email not confirmed")) {
+        msg = "Please confirm your email before signing in.";
       }
-
-      if (!data.user) {
-        throw new Error("No user data received. Please try again.")
-      }
-
-      console.log("Login successful!")
-      console.log("User ID:", data.user?.id)
-      console.log("User email:", data.user?.email)
-      console.log("User metadata:", data.user?.user_metadata)
-
-      // Wait a moment for the auth state to propagate
-      await new Promise((resolve) => setTimeout(resolve, 500))
-
-      // Get user profile to determine role and redirect
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("role, id")
-        .eq("id", data.user.id)
-        .single()
-
-      if (profileError) {
-        console.warn("Profile error, using metadata:", profileError)
-        // Fallback to user metadata
-        const role = data.user.user_metadata?.role || "startup"
-        console.log("Using fallback role:", role)
-
-        if (role === "manager") {
-          router.push("/dashboard")
-        } else {
-          // For startups, check if they're active
-          const { data: startupData } = await supabase
-            .from("startups")
-            .select("status")
-            .eq("user_id", data.user.id)
-            .single()
-
-          if (startupData?.status === "inactive") {
-            await supabase.auth.signOut()
-            throw new Error("Your account has been deactivated. Please contact the program manager.")
-          }
-
-          router.push("/startup-dashboard")
-        }
-      } else {
-        console.log("Profile role:", profile.role)
-
-        if (profile.role === "manager") {
-          router.push("/dashboard")
-        } else {
-          // For startups, check if they're active
-          const { data: startupData } = await supabase
-            .from("startups")
-            .select("status")
-            .eq("user_id", data.user.id)
-            .single()
-
-          if (startupData?.status === "inactive") {
-            await supabase.auth.signOut()
-            throw new Error("Your account has been deactivated. Please contact the program manager.")
-          }
-
-          router.push("/startup-dashboard")
-        }
-      }
-    } catch (error: any) {
-      console.error("Login failed:", error)
-      setError(error.message || "Login failed. Please try again.")
-    } finally {
-      setIsLoading(false)
+      setError(msg);
     }
+    // successful signIn will update session → effect will redirect
+  };
+
+  // while loading or already signed in, render nothing
+  if (status === "loading" || status === "authenticated") {
+    return null;
   }
 
   return (
@@ -148,54 +70,40 @@ export default function LoginForm() {
           )}
 
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-[#212121] font-medium">
-              Email
-            </Label>
+            <Label htmlFor="email">Email</Label>
             <Input
               id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="border-gray-300 focus:border-[#FF7A00] focus:ring-[#FF7A00]"
-              placeholder="Enter your email"
+              placeholder="you@example.com"
               autoComplete="email"
             />
           </div>
+
           <div className="space-y-2">
-            <Label htmlFor="password" className="text-[#212121] font-medium">
-              Password
-            </Label>
+            <Label htmlFor="password">Password</Label>
             <Input
               id="password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="border-gray-300 focus:border-[#FF7A00] focus:ring-[#FF7A00]"
-              placeholder="Enter your password"
+              placeholder="••••••••"
               autoComplete="current-password"
             />
           </div>
+
           <Button
             type="submit"
-            className="w-full bg-[#FF7A00] hover:bg-[#E66A00] text-white font-medium transition-colors duration-200"
+            className="w-full bg-[#FF7A00] hover:bg-[#E66A00] text-white"
             disabled={isLoading}
           >
-            {isLoading ? "Signing in..." : "Sign In"}
+            {isLoading ? "Signing in…" : "Sign In"}
           </Button>
         </form>
-
-        {/* <div className="mt-6 text-xs text-gray-500 text-center space-y-2">
-          <p>Demo credentials:</p>
-          <p>
-            <strong>Manager:</strong> admin@admin.com / IParkAdmin@123
-          </p>
-          <p>
-            <strong>Startup:</strong> Credentials are provided when startups are added by managers
-          </p>
-        </div> */}
       </CardContent>
     </Card>
-  )
+  );
 }

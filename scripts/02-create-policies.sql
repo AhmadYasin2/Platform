@@ -1,3 +1,12 @@
+CREATE SCHEMA IF NOT EXISTS auth;
+
+CREATE OR REPLACE FUNCTION auth.uid()
+  RETURNS UUID
+  LANGUAGE sql
+  STABLE
+AS $$
+  SELECT current_setting('jwt.claims.sub')::uuid;
+$$;
 -- Profiles policies
 CREATE POLICY "Users can view own profile" ON profiles
     FOR SELECT USING (auth.uid() = id);

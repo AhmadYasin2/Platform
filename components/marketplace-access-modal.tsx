@@ -5,13 +5,28 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ShoppingBag, X, Check, Ban } from "lucide-react"
-import { supabase, type Startup } from "@/lib/supabase"
 
 interface MarketplaceAccessModalProps {
   open: boolean
   onClose: () => void
   selectedStartups: Startup[]
   onAccessUpdated: () => void
+}
+interface Startup {
+  id: string;
+  name: string;
+  founder_name: string | null;
+  email: string;
+  logo_url: string | null;
+  contract_status: "Pending" | "Sent" | "Signed";
+  total_credits: number;
+  used_credits: number;
+  marketplace_access: boolean;
+  user_id: string | null; // allow null
+  created_by: string | null; // allow null
+  status: "active" | "inactive";
+  created_at: string;
+  updated_at: string;
 }
 
 export default function MarketplaceAccessModal({
@@ -25,21 +40,28 @@ export default function MarketplaceAccessModal({
   const updateMarketplaceAccess = async (enable: boolean) => {
     setUpdating(true)
     try {
-      const startupIds = selectedStartups.map((s) => s.id)
-
-      const { error } = await supabase.from("startups").update({ marketplace_access: enable }).in("id", startupIds)
-
-      if (error) throw error
+      // Batch‐update each selected startup
+      await Promise.all(
+        selectedStartups.map((s) =>
+          fetch(`/api/startups/${s.id}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ marketplace_access: enable }),
+          }).then((res) => {
+            if (!res.ok) throw new Error(`Failed to update ${s.id}`)
+          })
+        )
+      )
 
       onAccessUpdated()
       onClose()
       alert(
-        `Marketplace access ${enable ? "enabled" : "disabled"} for ${selectedStartups.length} startup${
-          selectedStartups.length > 1 ? "s" : ""
-        }`,
+        `Marketplace access ${enable ? "enabled" : "disabled"} for ${
+          selectedStartups.length
+        } startup${selectedStartups.length > 1 ? "s" : ""}`
       )
-    } catch (error) {
-      console.error("Error updating marketplace access:", error)
+    } catch (err) {
+      console.error("Error updating marketplace access:", err)
       alert("Failed to update marketplace access. Please try again.")
     } finally {
       setUpdating(false)
@@ -66,11 +88,18 @@ export default function MarketplaceAccessModal({
 
         <div className="space-y-6">
           <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-            <h4 className="font-medium text-purple-800 mb-2">Selected Startups ({selectedStartups.length})</h4>
+            <h4 className="font-medium text-purple-800 mb-2">
+              Selected Startups ({selectedStartups.length})
+            </h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {selectedStartups.map((startup) => (
-                <div key={startup.id} className="flex items-center justify-between p-2 bg-white rounded border">
-                  <span className="text-sm font-medium text-[#212121]">{startup.name}</span>
+                <div
+                  key={startup.id}
+                  className="flex items-center justify-between p-2 bg-white rounded border"
+                >
+                  <span className="text-sm font-medium text-[#212121]">
+                    {startup.name}
+                  </span>
                   <Badge
                     className={`text-xs ${
                       startup.marketplace_access
@@ -103,7 +132,8 @@ export default function MarketplaceAccessModal({
                 • <strong>Enabled:</strong> Startups can browse and select service packages
               </li>
               <li>
-                • <strong>Disabled:</strong> Startups cannot access the marketplace but can still view their dashboard
+                • <strong>Disabled:</strong> Startups cannot access the marketplace but can
+                still view their dashboard
               </li>
               <li>• Changes take effect immediately</li>
             </ul>

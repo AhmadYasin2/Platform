@@ -1,60 +1,99 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Mail, X, Save } from "lucide-react"
-import { supabase, type Startup } from "@/lib/supabase"
+import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Mail, X, Save } from "lucide-react";
 
+export interface Startup {
+  id: string;
+  name: string;
+  founder_name: string | null;
+  email: string;                        // ← add this
+  logo_url: string | null;
+  contract_status: "Pending" | "Sent" | "Signed";
+  total_credits: number;
+  used_credits: number;
+  marketplace_access: boolean;
+  user_id: string | null;
+  created_by: string | null;
+  status: "active" | "inactive";
+  created_at: string;
+  updated_at: string;
+
+  // ← new email-preferences fields:
+  notification_email?: string;
+  email_preferences?: {
+    meeting_reminders: boolean;
+    service_updates: boolean;
+    general_announcements: boolean;
+  };
+}
 interface EmailPreferencesModalProps {
-  open: boolean
-  onClose: () => void
-  startup: Startup
-  onUpdate: (startup: Startup) => void
+  open: boolean;
+  onClose: () => void;
+  startup: Startup;
+  onUpdate: (startup: Startup) => void;
 }
 
-export default function EmailPreferencesModal({ open, onClose, startup, onUpdate }: EmailPreferencesModalProps) {
-  const [notificationEmail, setNotificationEmail] = useState(startup.notification_email || startup.email)
+export default function EmailPreferencesModal({
+  open,
+  onClose,
+  startup,
+  onUpdate,
+}: EmailPreferencesModalProps) {
+  const [notificationEmail, setNotificationEmail] = useState(
+    startup.notification_email || startup.email
+  );
   const [preferences, setPreferences] = useState(
     startup.email_preferences || {
       meeting_reminders: true,
       service_updates: true,
       general_announcements: true,
-    },
-  )
-  const [saving, setSaving] = useState(false)
+    }
+  );
+  const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    setSaving(true)
+    setSaving(true);
     try {
-      const { error } = await supabase
-        .from("startups")
-        .update({
+      const res = await fetch(`/api/startups/${startup.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           notification_email: notificationEmail,
           email_preferences: preferences,
-        })
-        .eq("id", startup.id)
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || "Failed to update");
+      }
 
-      if (error) throw error
-
+      // inform parent of the update
       onUpdate({
         ...startup,
         notification_email: notificationEmail,
         email_preferences: preferences,
-      })
+      });
 
-      onClose()
-      alert("Email preferences updated successfully!")
+      onClose();
+      alert("Email preferences updated successfully!");
     } catch (error) {
-      console.error("Error updating email preferences:", error)
-      alert("Failed to update email preferences")
+      console.error("Error updating email preferences:", error);
+      alert("Failed to update email preferences");
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -94,8 +133,11 @@ export default function EmailPreferencesModal({ open, onClose, startup, onUpdate
                 <Checkbox
                   id="meeting_reminders"
                   checked={preferences.meeting_reminders}
-                  onCheckedChange={(checked) =>
-                    setPreferences({ ...preferences, meeting_reminders: checked as boolean })
+                  onCheckedChange={(c) =>
+                    setPreferences({
+                      ...preferences,
+                      meeting_reminders: c as boolean,
+                    })
                   }
                 />
                 <Label htmlFor="meeting_reminders" className="text-sm">
@@ -107,7 +149,12 @@ export default function EmailPreferencesModal({ open, onClose, startup, onUpdate
                 <Checkbox
                   id="service_updates"
                   checked={preferences.service_updates}
-                  onCheckedChange={(checked) => setPreferences({ ...preferences, service_updates: checked as boolean })}
+                  onCheckedChange={(c) =>
+                    setPreferences({
+                      ...preferences,
+                      service_updates: c as boolean,
+                    })
+                  }
                 />
                 <Label htmlFor="service_updates" className="text-sm">
                   Service updates and new offerings
@@ -118,8 +165,11 @@ export default function EmailPreferencesModal({ open, onClose, startup, onUpdate
                 <Checkbox
                   id="general_announcements"
                   checked={preferences.general_announcements}
-                  onCheckedChange={(checked) =>
-                    setPreferences({ ...preferences, general_announcements: checked as boolean })
+                  onCheckedChange={(c) =>
+                    setPreferences({
+                      ...preferences,
+                      general_announcements: c as boolean,
+                    })
                   }
                 />
                 <Label htmlFor="general_announcements" className="text-sm">
@@ -154,5 +204,5 @@ export default function EmailPreferencesModal({ open, onClose, startup, onUpdate
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

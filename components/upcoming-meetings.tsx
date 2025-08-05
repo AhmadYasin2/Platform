@@ -3,15 +3,12 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar, Clock } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 interface Meeting {
   id: string;
   meeting_date: string;
-  meeting_time?: string | null;
-  startup: {
-    name: string;
-  };
+  meeting_time: string | null;
+  startup_name: string;
 }
 
 export default function UpcomingMeetings() {
@@ -19,58 +16,25 @@ export default function UpcomingMeetings() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchUpcomingMeetings();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+    (async () => {
+      try {
+        const res = await fetch("/api/upcoming-meetings", {
+          signal: controller.signal,
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: Meeting[] = await res.json();
+        setMeetings(data);
+      } catch (err) {
+        console.error("Error fetching upcoming meetings:", err);
+      } finally {
+        clearTimeout(timeoutId);
+        setLoading(false);
+      }
+    })();
   }, []);
-
-  const fetchUpcomingMeetings = async () => {
-    const timeoutMs = 10_000;
-    let timeoutId: NodeJS.Timeout;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(
-        () => reject(new Error("Request timed out")),
-        timeoutMs
-      );
-    });
-
-    try {
-      const today = new Date().toISOString().split("T")[0];
-
-      const supabasePromise = await supabase
-        .from("meetings")
-        .select(
-          `
-    id,
-    meeting_date,
-    startups!inner(name)
-  `
-        )
-        .gte("meeting_date", today)
-        .order("meeting_date", { ascending: true })
-        .limit(5);
-
-      const { data, error } = await Promise.race([
-        supabasePromise,
-        timeoutPromise,
-      ]);
-
-      if (error) throw error;
-
-      // Transform the data to match our interface
-      const transformedMeetings =
-        data?.map((meeting: any) => ({
-          id: meeting.id,
-          meeting_date: meeting.meeting_date,
-          meeting_time: null, // placeholder until column exists
-          startup: { name: meeting.startups.name },
-        })) || [];
-
-      setMeetings(transformedMeetings);
-    } catch (error) {
-      console.error("Error fetching upcoming meetings:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -99,23 +63,23 @@ export default function UpcomingMeetings() {
       <CardContent>
         <div className="space-y-3">
           {meetings.length > 0 ? (
-            meetings.map((meeting) => (
+            meetings.map((mt) => (
               <div
-                key={meeting.id}
+                key={mt.id}
                 className="flex items-center justify-between p-3 bg-[#F9F7F1] rounded-lg"
               >
                 <div>
                   <p className="text-sm font-medium text-[#212121]">
-                    {meeting.startup.name}
+                    {mt.startup_name}
                   </p>
                   <p className="text-xs text-[#212121] opacity-70">
-                    {meeting.meeting_date}
+                    {new Date(mt.meeting_date).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="flex items-center space-x-1 text-[#FF7A00]">
                   <Clock className="w-4 h-4" />
                   <span className="text-sm font-medium">
-                    {meeting.meeting_time || "TBD"}
+                    {mt.meeting_time ?? "TBD"}
                   </span>
                 </div>
               </div>

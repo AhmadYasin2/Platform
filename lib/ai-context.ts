@@ -1,5 +1,3 @@
-import { supabase } from "./supabase"
-
 export interface StartupContext {
   id: string
   name: string
@@ -10,6 +8,23 @@ export interface StartupContext {
   total_credits: number
   used_credits: number
   contract_status: string
+}
+
+interface Startup {
+  id: string;
+  name: string;
+  founder_name: string | null;
+  email: string;
+  logo_url: string | null;
+  contract_status: "Pending" | "Sent" | "Signed";
+  total_credits: number;
+  used_credits: number;
+  marketplace_access: boolean;
+  user_id: string | null; // allow null
+  created_by: string | null; // allow null
+  status: "active" | "inactive";
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ServiceContext {
