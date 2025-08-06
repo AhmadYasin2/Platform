@@ -62,7 +62,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return null;
   }
   const handleLogout = async () => {
-    await signOut({ callbackUrl: "/" });
+    await signOut({ callbackUrl: "oc.uyi.ai" });
   };
 
   const managerNavItems = [
@@ -78,11 +78,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navItems =
     profile.role === "manager" ? managerNavItems : startupNavItems;
-
-  console.log("Current pathname:", pathname);
-  console.log("User role:", profile.role);
-  console.log("Nav items:", navItems);
-
   return (
     <div className="flex h-screen bg-white">
       {/* Mobile sidebar overlay */}
