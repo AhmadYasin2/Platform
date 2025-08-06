@@ -82,12 +82,7 @@ Login details:
  • Email: ${formData.email}
  • Password: ${password}
 
-Total Credits: ${formData.totalCredits}
-
-${
-  formData.description ? `About your startup:\n${formData.description}\n\n` : ""
-}
-Log in at: https://orangecorners.uyi.ai
+Log in at: https://oc.uyi.ai
 
 — Orange Corners Team
       `.trim();

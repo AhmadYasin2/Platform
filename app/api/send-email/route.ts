@@ -100,7 +100,7 @@ You received this email because you're part of the Orange Corners entrepreneursh
     // Send emails via Mailjet
     const result = await mailjet.post("send", { version: "v3.1" }).request(emailData)
 
-    console.log("Mailjet response:", result.body)
+    // console.log("Mailjet response:", result.body)
 
     return NextResponse.json({
       success: true,
