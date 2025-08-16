@@ -24,6 +24,15 @@ declare module "next-auth" {
 }
 
 export const authOptions: NextAuthOptions = {
+  // app/api/auth/[...nextauth]/route.ts
+
+  // ...providers, callbacks, etc.
+  pages: {
+    signIn: "/auth/signin",
+    signOut: "/", // optional
+    error: "/", // optional
+  },
+
   // --------------------
   // Providers
   // --------------------
@@ -104,9 +113,6 @@ export const authOptions: NextAuthOptions = {
   // --------------------
   // Custom Pages (optional)
   // --------------------
-  pages: {
-    signIn: "/auth/signin",
-  },
 };
 
 // Next.js 13 route handler export

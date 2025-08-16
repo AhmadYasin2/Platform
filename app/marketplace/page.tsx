@@ -182,6 +182,14 @@ export default function MarketplacePage() {
         {/* Header omitted for brevity */}
 
         <Tabs defaultValue="services" className="space-y-6">
+          <TabsList className="grid grid-cols-2 bg-white">
+            <TabsTrigger value="services" className="flex-1">
+              Services
+            </TabsTrigger>
+            <TabsTrigger value="ai-advisor" className="flex-1">
+              AI Advisor
+            </TabsTrigger>
+          </TabsList>
           <TabsContent value="services">
             <div className="grid lg:grid-cols-2 gap-6">
               {services.map((service) => (

@@ -62,7 +62,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return null;
   }
   const handleLogout = async () => {
-    await signOut({ callbackUrl: "oc.uyi.ai" });
+    await signOut({ callbackUrl: "/" });
   };
 
   const managerNavItems = [
