@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "next/navigation";
 import { useSession, signIn } from "next-auth/react";
 import DashboardLayout from "@/components/dashboard-layout";
@@ -43,8 +43,8 @@ interface Startup {
   total_credits: number;
   used_credits: number;
   marketplace_access: boolean;
-  user_id: string | null; // allow null
-  created_by: string | null; // allow null
+  user_id: string | null;
+  created_by: string | null;
   status: "active" | "inactive";
   created_at: string;
   updated_at: string;
@@ -70,13 +70,18 @@ interface StartupWithServices extends Startup {
   startup_services: StartupService[];
 }
 
+type NoteFields = { farah_notes: string; guest_notes: string };
+type EditableMap = Record<string, NoteFields>;
+
 export default function StartupDetailPage() {
   const [creditInput, setCreditInput] = useState<string>("");
   const { id: startupId } = useParams();
   const { data: session, status } = useSession();
+
   const [startup, setStartup] = useState<StartupWithServices | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+
   const [newMeeting, setNewMeeting] = useState({
     date: "",
     time: "",
@@ -85,28 +90,43 @@ export default function StartupDetailPage() {
   });
   const [showNewMeeting, setShowNewMeeting] = useState(false);
 
-  // 4) Delete a meeting
-  const deleteMeeting = async (meetingId: string) => {
-    const res = await fetch(`/api/meetings/${meetingId}`, { method: "DELETE" });
-    if (res.ok) {
-      setStartup((s) =>
-        s ? { ...s, meetings: s.meetings.filter((m) => m.id !== meetingId) } : s
-      );
-    } else {
-      console.error("Delete failed:", await res.text());
-      alert("Failed to delete meeting.");
-    }
-  };
+  // Debounced notes buffers + flags
+  const [editableNotes, setEditableNotes] = useState<EditableMap>({});
+  const [savingNote, setSavingNote] = useState<Record<string, boolean>>({});
+  const saveTimers = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     if (status === "unauthenticated") {
       signIn();
-      return; // explicitly return nothing
+      return;
     }
     if (status === "authenticated") {
-      fetchDetails(); // call it, but don’t return it
+      fetchDetails();
     }
   }, [status]);
+
+  // Seed editable buffers whenever startup changes
+  useEffect(() => {
+    if (!startup) return;
+    const init: EditableMap = {};
+    for (const m of startup.meetings) {
+      init[m.id] = {
+        farah_notes: m.farah_notes ?? "",
+        guest_notes: m.guest_notes ?? "",
+      };
+    }
+    setEditableNotes(init);
+  }, [startup]);
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      for (const id of saveTimers.current.values()) {
+        window.clearTimeout(id);
+      }
+      saveTimers.current.clear();
+    };
+  }, []);
 
   const fetchDetails = async () => {
     setLoading(true);
@@ -121,61 +141,125 @@ export default function StartupDetailPage() {
     }
   };
 
-  // 1) Update contract or credits
+  // Update contract or credits
   const updateField = async (field: string, value: any) => {
     setSaving(field);
-    await fetch(`/api/startups/${startupId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
-    });
-    setStartup((s) => (s ? ({ ...s, [field]: value } as any) : s));
-    setSaving(null);
+    try {
+      await fetch(`/api/startups/${startupId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      setStartup((s) => (s ? ({ ...s, [field]: value } as any) : s));
+    } finally {
+      setSaving(null);
+    }
   };
 
-  // 2) Add meeting
+  // Add meeting
   const addNewMeeting = async () => {
     setSaving("new-meeting");
     const { date, time, farahNotes, guestNotes } = newMeeting;
-    const res = await fetch(`/api/startups/${startupId}/meetings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, time, farahNotes, guestNotes }),
-    });
-    if (!res.ok) {
-      // try to surface error details
-      const text = await res.text();
-      console.error("Create meeting failed:", text);
-      throw new Error(text || "Failed to create meeting");
+    try {
+      const res = await fetch(`/api/startups/${startupId}/meetings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, time, farahNotes, guestNotes }),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        console.error("Create meeting failed:", text);
+        throw new Error(text || "Failed to create meeting");
+      }
+      const saved: Meeting = await res.json();
+      setStartup((s) => (s ? { ...s, meetings: [saved, ...s.meetings] } : s));
+      setNewMeeting({ date: "", time: "", farahNotes: "", guestNotes: "" });
+      setShowNewMeeting(false);
+    } finally {
+      setSaving(null);
     }
-    const saved: Meeting = await res.json();
-    setStartup((s) => (s ? { ...s, meetings: [saved, ...s.meetings] } : s));
-    setNewMeeting({ date: "", time: "", farahNotes: "", guestNotes: "" });
-    setShowNewMeeting(false);
-    setSaving(null);
   };
 
-  // 3) Update single meeting field
-  const updateMeeting = async (
+  // Delete meeting
+  const deleteMeeting = async (meetingId: string) => {
+    const res = await fetch(`/api/meetings/${meetingId}`, { method: "DELETE" });
+    if (res.ok) {
+      setStartup((s) =>
+        s ? { ...s, meetings: s.meetings.filter((m) => m.id !== meetingId) } : s
+      );
+      // cleanup any timers/buffers for this meeting
+      const keys = [...saveTimers.current.keys()].filter((k) =>
+        k.startsWith(`${meetingId}:`)
+      );
+      for (const k of keys) {
+        const t = saveTimers.current.get(k);
+        if (t) window.clearTimeout(t);
+        saveTimers.current.delete(k);
+      }
+      setEditableNotes((prev) => {
+        const copy = { ...prev };
+        delete copy[meetingId];
+        return copy;
+      });
+    } else {
+      console.error("Delete failed:", await res.text());
+      alert("Failed to delete meeting.");
+    }
+  };
+
+  // Debounced save to server
+  const saveMeetingField = async (
     meetingId: string,
     field: keyof Meeting,
     value: string
   ) => {
-    await fetch(`/api/meetings/${meetingId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ [field]: value }),
-    });
-    setStartup((s) =>
-      s
-        ? {
-            ...s,
-            meetings: s.meetings.map((m) =>
-              m.id === meetingId ? { ...m, [field]: value } : m
-            ),
-          }
-        : s
-    );
+    setSavingNote((s) => ({ ...s, [`${meetingId}:${field}`]: true }));
+    try {
+      await fetch(`/api/meetings/${meetingId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      });
+      // Reflect saved value in main startup state
+      setStartup((s) =>
+        s
+          ? {
+              ...s,
+              meetings: s.meetings.map((m) =>
+                m.id === meetingId ? { ...m, [field]: value } : m
+              ),
+            }
+          : s
+      );
+    } catch (e) {
+      console.error("Autosave failed", e);
+    } finally {
+      setSavingNote((s) => ({ ...s, [`${meetingId}:${field}`]: false }));
+    }
+  };
+
+  const handleNoteChange = (
+    meetingId: string,
+    field: "farah_notes" | "guest_notes",
+    value: string
+  ) => {
+    // Update local buffer immediately
+    setEditableNotes((prev) => ({
+      ...prev,
+      [meetingId]: {
+        ...(prev[meetingId] ?? { farah_notes: "", guest_notes: "" }),
+        [field]: value,
+      } as NoteFields,
+    }));
+
+    const key = `${meetingId}:${field}`;
+    const prior = saveTimers.current.get(key);
+    if (prior) window.clearTimeout(prior);
+    const t = window.setTimeout(() => {
+      saveMeetingField(meetingId, field, value);
+      saveTimers.current.delete(key);
+    }, 600);
+    saveTimers.current.set(key, t);
   };
 
   const getStatusColor = (status: string) => {
@@ -199,6 +283,7 @@ export default function StartupDetailPage() {
       </DashboardLayout>
     );
   }
+
   if (!startup) {
     return (
       <DashboardLayout>
@@ -219,35 +304,26 @@ export default function StartupDetailPage() {
           <div>
             <h1 className="text-3xl font-bold">{startup.name}</h1>
             <p className="opacity-70">
-              {startup.founder_name && `Founded by ${startup.founder_name} • `}
-              ID: {startup.id.slice(0, 8)}
+              {startup.founder_name && `Founded by ${startup.founder_name} • `}ID:{" "}
+              {startup.id.slice(0, 8)}
             </p>
           </div>
         </div>
 
         <Tabs defaultValue="contract" className="space-y-6">
           <TabsList className="grid grid-cols-3 bg-white">
-            <TabsTrigger
-              value="contract"
-              className="flex items-center space-x-2"
-            >
+            <TabsTrigger value="contract" className="flex items-center space-x-2">
               <FileText className="w-4 h-4" /> <span>Contract</span>
             </TabsTrigger>
-            <TabsTrigger
-              value="meetings"
-              className="flex items-center space-x-2"
-            >
+            <TabsTrigger value="meetings" className="flex items-center space-x-2">
               <CalIcon className="w-4 h-4" /> <span>Meetings</span>
             </TabsTrigger>
-            <TabsTrigger
-              value="services"
-              className="flex items-center space-x-2"
-            >
+            <TabsTrigger value="services" className="flex items-center space-x-2">
               <CreditCard className="w-4 h-4" /> <span>Services & Credits</span>
             </TabsTrigger>
           </TabsList>
 
-          {/* --- Contract --- */}
+          {/* Contract */}
           <TabsContent value="contract">
             <Card>
               <CardHeader>
@@ -272,11 +348,7 @@ export default function StartupDetailPage() {
                   </Select>
                 </div>
                 <div className="flex items-center space-x-2">
-                  <Badge
-                    className={`${getStatusColor(
-                      startup.contract_status
-                    )} border`}
-                  >
+                  <Badge className={`${getStatusColor(startup.contract_status)} border`}>
                     {startup.contract_status}
                   </Badge>
                   {saving === "contract_status" && (
@@ -287,7 +359,7 @@ export default function StartupDetailPage() {
             </Card>
           </TabsContent>
 
-          {/* --- Meetings --- */}
+          {/* Meetings */}
           <TabsContent value="meetings">
             <div className="space-y-6">
               <Card>
@@ -311,10 +383,7 @@ export default function StartupDetailPage() {
                               type="date"
                               value={newMeeting.date}
                               onChange={(e) =>
-                                setNewMeeting((p) => ({
-                                  ...p,
-                                  date: e.target.value,
-                                }))
+                                setNewMeeting((p) => ({ ...p, date: e.target.value }))
                               }
                             />
                           </div>
@@ -324,10 +393,7 @@ export default function StartupDetailPage() {
                               type="time"
                               value={newMeeting.time || ""}
                               onChange={(e) =>
-                                setNewMeeting((p) => ({
-                                  ...p,
-                                  time: e.target.value,
-                                }))
+                                setNewMeeting((p) => ({ ...p, time: e.target.value }))
                               }
                             />
                           </div>
@@ -338,10 +404,7 @@ export default function StartupDetailPage() {
                             rows={3}
                             value={newMeeting.farahNotes}
                             onChange={(e) =>
-                              setNewMeeting((p) => ({
-                                ...p,
-                                farahNotes: e.target.value,
-                              }))
+                              setNewMeeting((p) => ({ ...p, farahNotes: e.target.value }))
                             }
                           />
                         </div>
@@ -351,18 +414,12 @@ export default function StartupDetailPage() {
                             rows={3}
                             value={newMeeting.guestNotes}
                             onChange={(e) =>
-                              setNewMeeting((p) => ({
-                                ...p,
-                                guestNotes: e.target.value,
-                              }))
+                              setNewMeeting((p) => ({ ...p, guestNotes: e.target.value }))
                             }
                           />
                         </div>
                         <div className="flex space-x-2">
-                          <Button
-                            onClick={addNewMeeting}
-                            disabled={saving === "new-meeting"}
-                          >
+                          <Button onClick={addNewMeeting} disabled={saving === "new-meeting"}>
                             {saving === "new-meeting" ? (
                               <Loader2 className="w-4 h-4 animate-spin" />
                             ) : (
@@ -370,10 +427,7 @@ export default function StartupDetailPage() {
                             )}
                             Save
                           </Button>
-                          <Button
-                            variant="outline"
-                            onClick={() => setShowNewMeeting(false)}
-                          >
+                          <Button variant="outline" onClick={() => setShowNewMeeting(false)}>
                             Cancel
                           </Button>
                         </div>
@@ -398,29 +452,52 @@ export default function StartupDetailPage() {
                             <Label>Farah’s Notes</Label>
                             <Textarea
                               rows={4}
-                              value={m.farah_notes || ""}
+                              value={
+                                editableNotes[m.id]?.farah_notes ??
+                                m.farah_notes ??
+                                ""
+                              }
                               onChange={(e) =>
-                                updateMeeting(
-                                  m.id,
-                                  "farah_notes",
-                                  e.target.value
-                                )
+                                handleNoteChange(m.id, "farah_notes", e.target.value)
+                              }
+                              onBlur={(e) =>
+                                saveMeetingField(m.id, "farah_notes", e.target.value)
                               }
                             />
+                            <div className="h-5">
+                              {savingNote[`${m.id}:farah_notes`] && (
+                                <span className="text-xs text-[#FF7A00] inline-flex items-center">
+                                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                  Saving…
+                                </span>
+                              )}
+                            </div>
                           </div>
+
                           <div>
                             <Label>Guest Notes</Label>
                             <Textarea
                               rows={4}
-                              value={m.guest_notes || ""}
+                              value={
+                                editableNotes[m.id]?.guest_notes ??
+                                m.guest_notes ??
+                                ""
+                              }
                               onChange={(e) =>
-                                updateMeeting(
-                                  m.id,
-                                  "guest_notes",
-                                  e.target.value
-                                )
+                                handleNoteChange(m.id, "guest_notes", e.target.value)
+                              }
+                              onBlur={(e) =>
+                                saveMeetingField(m.id, "guest_notes", e.target.value)
                               }
                             />
+                            <div className="h-5">
+                              {savingNote[`${m.id}:guest_notes`] && (
+                                <span className="text-xs text-[#FF7A00] inline-flex items-center">
+                                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                                  Saving…
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <Button
@@ -448,7 +525,7 @@ export default function StartupDetailPage() {
             </div>
           </TabsContent>
 
-          {/* --- Services & Credits --- */}
+          {/* Services & Credits */}
           <TabsContent value="services">
             <Card>
               <CardHeader>
