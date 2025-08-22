@@ -105,7 +105,7 @@ Log in at: https://oc.uyi.ai
       founderName: "",
       email: "",
       description: "",
-      totalCredits: 1000,
+      totalCredits: 1500,
     });
     setError("");
     setSuccess(null);
@@ -174,9 +174,6 @@ Log in at: https://oc.uyi.ai
         <DialogHeader>
           <DialogTitle className="text-xl font-bold text-[#212121] flex items-center justify-between">
             Add New Startup
-            <Button variant="ghost" size="sm" onClick={handleClose}>
-              <X className="w-4 h-4" />
-            </Button>
           </DialogTitle>
         </DialogHeader>
 

@@ -1,3 +1,4 @@
+// app/startups/page.tsx — fixes type error + add Excel export (keeps your UI)
 "use client";
 
 import { useState, useEffect } from "react";
@@ -5,18 +6,22 @@ import DashboardLayout from "@/components/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Mail, Eye, Plus, Trash2, ShoppingBag } from "lucide-react";
+import { Mail, Eye, Plus, Trash2, ShoppingBag, Download, Loader2 } from "lucide-react";
 import Link from "next/link";
 import EmailModal from "@/components/email-modal";
 import AddStartupModal from "@/components/add-startup-modal";
 import MarketplaceAccessModal from "@/components/marketplace-access-modal";
 import { useSession } from "next-auth/react";
+import { toast } from "sonner";
 
-interface Startup {
+// IMPORTANT: rename local type to avoid clashing with EmailModal's internal `Startup` type
+// and include `notification_email` so structural typing matches EmailModalProps.
+export interface StartupRow {
   id: string;
   name: string;
   founder_name: string | null;
   email: string;
+  notification_email: string | null; // <-- added to satisfy EmailModal
   logo_url: string | null;
   contract_status: "Pending" | "Sent" | "Signed";
   total_credits: number;
@@ -30,26 +35,33 @@ interface Startup {
 }
 
 export default function StartupsPage() {
-  const [startups, setStartups] = useState<Startup[]>([]);
+  const [startups, setStartups] = useState<StartupRow[]>([]);
   const [selectedStartups, setSelectedStartups] = useState<string[]>([]);
   const [emailModalOpen, setEmailModalOpen] = useState(false);
   const [addStartupModalOpen, setAddStartupModalOpen] = useState(false);
   const [marketplaceModalOpen, setMarketplaceModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const { data: session, status } = useSession();
-  const isManager = status === "authenticated" && session?.user.role === "manager";
+  const isManager = status === "authenticated" && (session as any)?.user?.role === "manager";
 
   const fetchStartups = async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/startups?status=active");
       if (!res.ok) throw new Error(await res.text());
-      const data: Startup[] = await res.json();
-      setStartups(data);
+      const data: any[] = await res.json();
+      // Ensure `notification_email` exists to satisfy EmailModal typing and UX fallback
+      const rows: StartupRow[] = data.map((s) => ({
+        notification_email: s.notification_email ?? s.email ?? null,
+        ...s,
+      }));
+      setStartups(rows);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error("Error fetching startup dashboard data:", msg);
+      toast.error("Failed to load startups.");
     } finally {
       setLoading(false);
     }
@@ -57,16 +69,16 @@ export default function StartupsPage() {
 
   useEffect(() => {
     if (isManager) fetchStartups();
-  }, [status, session?.user.role]);
+  }, [status, (session as any)?.user?.role]);
 
-  const handleSelectAll = (checked: boolean) => {
-    setSelectedStartups(checked ? startups.map((s) => s.id) : []);
+  const handleSelectAll = (checked: boolean | "indeterminate") => {
+    const on = checked === true;
+    setSelectedStartups(on ? startups.map((s) => s.id) : []);
   };
 
-  const handleSelectStartup = (startupId: string, checked: boolean) => {
-    setSelectedStartups((prev) =>
-      checked ? [...prev, startupId] : prev.filter((id) => id !== startupId)
-    );
+  const handleSelectStartup = (startupId: string, checked: boolean | "indeterminate") => {
+    const on = checked === true;
+    setSelectedStartups((prev) => (on ? [...prev, startupId] : prev.filter((id) => id !== startupId)));
   };
 
   const deactivateStartup = async (startupId: string, startupName: string) => {
@@ -74,7 +86,8 @@ export default function StartupsPage() {
       !confirm(
         `Are you sure you want to deactivate "${startupName}"? This will prevent them from logging in and hide them from the active list. This action can be reversed.`
       )
-    ) return;
+    )
+      return;
 
     try {
       const res = await fetch("/api/update-startup-status", {
@@ -88,10 +101,10 @@ export default function StartupsPage() {
       setStartups((prev) => prev.filter((s) => s.id !== startupId));
       setSelectedStartups((prev) => prev.filter((id) => id !== startupId));
 
-      alert(`"${startupName}" has been deactivated and can no longer access their account.`);
+      toast.success(`"${startupName}" has been deactivated.`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      alert(`Failed to deactivate startup: ${msg}`);
+      toast.error(`Failed to deactivate startup: ${msg}`);
     }
   };
 
@@ -108,13 +121,37 @@ export default function StartupsPage() {
     }
   };
 
-  if (loading) return (
-    <DashboardLayout>
-      <div className="p-6 bg-[#F9F7F1] min-h-screen flex items-center justify-center">
-        <p className="text-[#212121]">Loading startups...</p>
-      </div>
-    </DashboardLayout>
-  );
+  // --- XLSX Export ---
+  // Calls a backend route that returns startups + their selected services
+  // and then generates an .xlsx file client-side via SheetJS.
+  const exportToExcel = async () => {
+  try {
+    setExporting(true);
+    // Navigate to server-generated XLSX to guarantee a download in all browsers
+    const url = "/api/startups/export?format=xlsx";
+    // Prefer using an anchor for better compatibility
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "startups_services.xlsx"; // hint; server will set Content-Disposition
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch (e: any) {
+    console.error(e);
+    toast.error(e?.message || "Export failed");
+  } finally {
+    setExporting(false);
+  }
+};
+
+  if (loading)
+    return (
+      <DashboardLayout>
+        <div className="p-6 bg-[#F9F7F1] min-h-screen flex items-center justify-center">
+          <p className="text-[#212121]">Loading startups...</p>
+        </div>
+      </DashboardLayout>
+    );
 
   return (
     <DashboardLayout>
@@ -122,9 +159,7 @@ export default function StartupsPage() {
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-[#212121] mb-2">Startups</h1>
-            <p className="text-[#212121] opacity-70">
-              Manage your cohort of {startups.length} active startups
-            </p>
+            <p className="text-[#212121] opacity-70">Manage your cohort of {startups.length} active startups</p>
           </div>
           <div className="flex space-x-3">
             <Button onClick={() => setAddStartupModalOpen(true)} className="bg-[#1BC9C9] hover:bg-[#17B3B3] text-white">
@@ -136,6 +171,10 @@ export default function StartupsPage() {
             <Button onClick={() => setEmailModalOpen(true)} disabled={selectedStartups.length === 0} className="bg-[#FF7A00] hover:bg-[#E66A00] text-white">
               <Mail className="w-4 h-4 mr-2" /> Send Email ({selectedStartups.length})
             </Button>
+            <Button onClick={exportToExcel} disabled={exporting} variant="outline" className="border-[#212121]/20">
+              {exporting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" />}
+              {exporting ? "Exporting..." : "Export XLSX"}
+            </Button>
           </div>
         </div>
 
@@ -145,10 +184,7 @@ export default function StartupsPage() {
               <thead className="bg-[#F9F7F1] border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-4 text-left">
-                    <Checkbox
-                      checked={selectedStartups.length === startups.length && startups.length > 0}
-                      onCheckedChange={handleSelectAll}
-                    />
+                    <Checkbox checked={selectedStartups.length === startups.length && startups.length > 0} onCheckedChange={handleSelectAll} />
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-medium text-[#212121]">Startup</th>
                   <th className="px-6 py-4 text-left text-sm font-medium text-[#212121]">Founder</th>
@@ -162,10 +198,7 @@ export default function StartupsPage() {
                 {startups.map((startup, index) => (
                   <tr key={startup.id} className={index % 2 === 0 ? "bg-white" : "bg-[#F9F7F1]"}>
                     <td className="px-6 py-4">
-                      <Checkbox
-                        checked={selectedStartups.includes(startup.id)}
-                        onCheckedChange={(checked) => handleSelectStartup(startup.id, checked as boolean)}
-                      />
+                      <Checkbox checked={selectedStartups.includes(startup.id)} onCheckedChange={(checked) => handleSelectStartup(startup.id, checked)} />
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-3">
@@ -195,23 +228,12 @@ export default function StartupsPage() {
                     <td className="px-6 py-4">
                       <div className="flex space-x-2">
                         <Link href={`/startups/${startup.id}`}>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-[#FF7A00] hover:bg-[#FF7A00] hover:text-white"
-                          >
+                          <Button variant="ghost" size="sm" className="text-[#FF7A00] hover:bg-[#FF7A00] hover:text-white">
                             <Eye className="w-4 h-4 mr-1" />
                             View
                           </Button>
                         </Link>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() =>
-                            deactivateStartup(startup.id, startup.name)
-                          }
-                          className="text-red-600 hover:bg-red-600 hover:text-white"
-                        >
+                        <Button variant="ghost" size="sm" onClick={() => deactivateStartup(startup.id, startup.name)} className="text-red-600 hover:bg-red-600 hover:text-white">
                           <Trash2 className="w-4 h-4 mr-1" />
                           Deactivate
                         </Button>
@@ -223,36 +245,17 @@ export default function StartupsPage() {
             </table>
             {startups.length === 0 && (
               <div className="text-center py-12">
-                <p className="text-[#212121] opacity-70">
-                  No active startups. Click "Add Startup" to get started.
-                </p>
+                <p className="text-[#212121] opacity-70">No active startups. Click "Add Startup" to get started.</p>
               </div>
             )}
           </div>
         </div>
 
-        <EmailModal
-          open={emailModalOpen}
-          onClose={() => setEmailModalOpen(false)}
-          selectedStartups={startups.filter((s) =>
-            selectedStartups.includes(s.id)
-          )}
-        />
+        <EmailModal open={emailModalOpen} onClose={() => setEmailModalOpen(false)} selectedStartups={startups.filter((s) => selectedStartups.includes(s.id)) as any} />
 
-        <AddStartupModal
-          open={addStartupModalOpen}
-          onClose={() => setAddStartupModalOpen(false)}
-          onStartupAdded={fetchStartups}
-        />
+        <AddStartupModal open={addStartupModalOpen} onClose={() => setAddStartupModalOpen(false)} onStartupAdded={fetchStartups} />
 
-        <MarketplaceAccessModal
-          open={marketplaceModalOpen}
-          onClose={() => setMarketplaceModalOpen(false)}
-          selectedStartups={startups.filter((s) =>
-            selectedStartups.includes(s.id)
-          )}
-          onAccessUpdated={fetchStartups}
-        />
+        <MarketplaceAccessModal open={marketplaceModalOpen} onClose={() => setMarketplaceModalOpen(false)} selectedStartups={startups.filter((s) => selectedStartups.includes(s.id))} onAccessUpdated={fetchStartups} />
       </div>
     </DashboardLayout>
   );

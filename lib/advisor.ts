@@ -232,7 +232,7 @@ export async function generatePlanWithGroq(input: AdvisorInput): Promise<Advisor
     const groq = new Groq({ apiKey });
 
     const resp = await groq.chat.completions.create({
-      model: "qwen/qwen3-32b",
+      model: "openai/gpt-oss-120b",
       temperature: 0.2,
       response_format: { type: "json_object" },
       messages: [
