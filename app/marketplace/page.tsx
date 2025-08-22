@@ -178,22 +178,25 @@ export default function MarketplacePage() {
     return Math.min(100, Math.round((startup.used_credits / startup.total_credits) * 100));
   }, [startup]);
 
+  // Filter + SORT packages by hours (fallback to price if hours is missing)
   const filteredServices = useMemo(() => {
     const lower = query.trim().toLowerCase();
     return services
       .map((s) => ({
         ...s,
-        packages: s.packages.filter((p) => {
-          const selectable = !startup || available >= p.price || isSelected(p.id);
-          if (showOnlySelectable && !selectable) return false;
-          if (!lower) return true;
-          return (
-            s.name.toLowerCase().includes(lower) ||
-            (s.description || "").toLowerCase().includes(lower) ||
-            p.name.toLowerCase().includes(lower) ||
-            (p.description || "").toLowerCase().includes(lower)
-          );
-        }),
+        packages: s.packages
+          .filter((p) => {
+            const selectable = !startup || available >= p.price || isSelected(p.id);
+            if (showOnlySelectable && !selectable) return false;
+            if (!lower) return true;
+            return (
+              s.name.toLowerCase().includes(lower) ||
+              (s.description || "").toLowerCase().includes(lower) ||
+              p.name.toLowerCase().includes(lower) ||
+              (p.description || "").toLowerCase().includes(lower)
+            );
+          })
+          .sort((a, b) => (a.hours ?? a.price) - (b.hours ?? b.price)), // <— sort by hours asc
       }))
       .filter((s) => s.packages.length > 0 || !showOnlySelectable);
   }, [services, query, showOnlySelectable, available, startup]);
@@ -279,7 +282,9 @@ export default function MarketplacePage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="flex items-center justify-between">
                       <span className="leading-tight">{service.name}</span>
-                      <Badge variant="secondary">{service.packages.length} package{service.packages.length !== 1 ? "s" : ""}</Badge>
+                      <Badge variant="secondary">
+                        {service.packages.length} package{service.packages.length !== 1 ? "s" : ""}
+                      </Badge>
                     </CardTitle>
                     <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                       {service.description?.trim() || "No description yet. Explore available packages below."}
@@ -315,19 +320,20 @@ export default function MarketplacePage() {
                                   ) : null}
                                 </div>
                                 <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                                  {pkg.description?.trim() || "Focused scope delivery from our experts. Includes planning, execution, and a summary report."}
+                                  {pkg.description?.trim() ||
+                                    "Focused scope delivery from our experts. Includes planning, execution, and a summary report."}
                                 </p>
-
                               </div>
 
-                              <div className="flex shrink-0 items-center gap-2">
+                              {/* Action area: vertical stack to show Hours under the main action */}
+                              <div className="flex shrink-0 items-end gap-2 flex-col">
                                 {selected ? (
                                   <Button
                                     onClick={() => confirmUnselect({ id: pkg.id, hours: pkg.price, name: pkg.name })}
                                     variant="outline"
                                     size="sm"
                                     disabled={unselecting === pkg.id}
-                                    className="gap-1"
+                                    className="gap-1 bg-red-300"
                                     aria-label={`Unselect ${pkg.name}`}
                                   >
                                     {unselecting === pkg.id ? (
@@ -353,10 +359,23 @@ export default function MarketplacePage() {
                                     Select
                                   </Button>
                                 ) : (
-                                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                                  <div className="text-xs text-muted-foreground flex items-center gap-1 text-gray-900">
                                     <AlertCircle className="w-4 h-4" /> Not enough credits
                                   </div>
                                 )}
+
+                                {/* Hours button/pill below the action */}
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1 h-7 px-2 text-xs cursor-default bg-blue-50"
+                                  disabled
+                                  aria-label={`${pkg.hours ?? pkg.price} hours`}
+                                  title={`${pkg.hours ?? pkg.price} hours`}
+                                >
+                                  <Clock className="w-3 h-3" />
+                                  {(pkg.hours ?? pkg.price)} hrs
+                                </Button>
                               </div>
                             </div>
                           </div>
@@ -374,7 +393,6 @@ export default function MarketplacePage() {
           </TabsContent> */}
         </Tabs>
 
-
         {/* Confirm Unselect Dialog (replaces window.confirm for better UX) */}
         <AlertDialog open={!!pendingUnselect} onOpenChange={(open) => !open && setPendingUnselect(null)}>
           <AlertDialogContent>
@@ -382,7 +400,10 @@ export default function MarketplacePage() {
               <AlertDialogTitle>Remove package?</AlertDialogTitle>
               <AlertDialogDescription>
                 {pendingUnselect?.name ? (
-                  <>You are about to unselect <strong>{pendingUnselect.name}</strong>. Credits will be returned to your balance.</>
+                  <>
+                    You are about to unselect <strong>{pendingUnselect.name}</strong>. Credits will be returned to your
+                    balance.
+                  </>
                 ) : (
                   <>You are about to unselect this package. Credits will be returned to your balance.</>
                 )}

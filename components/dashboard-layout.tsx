@@ -62,7 +62,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return null;
   }
   const handleLogout = async () => {
-    await signOut({ callbackUrl: "/" });
+    const origin = typeof window !== "undefined" ? window.location.origin : "/";
+    await signOut({ callbackUrl: `${origin}/` });
   };
 
   const managerNavItems = [
